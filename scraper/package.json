@@ -3,13 +3,20 @@
   "version": "1.0.0",
   "description": "Automatisk tilbuds-scraper for danske supermarkeder",
   "scripts": {
-    "start": "ts-node src/index.ts",
-    "cron": "ts-node src/cron.ts",
-    "dev": "ts-node --watch src/index.ts"
+    "start": "ts-node -r dotenv/config src/index.ts",
+    "cron": "ts-node -r dotenv/config src/cron.ts",
+    "serve": "ts-node -r dotenv/config src/server.ts",
+    "dev": "ts-node -r dotenv/config --watch src/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.81.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "axios": "^1.7.7",
     "cheerio": "^1.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {

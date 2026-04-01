@@ -10,13 +10,14 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getRecipeById, formatAmount, getScaledPrice } from '../data/recipeData';
+import { getGeneratedRecipeById } from '../data/recipeStore';
 import { colors, fonts, spacing } from '../theme';
 import { RecipeNavigationProp, RecipeRouteProp } from '../navigation/types';
 
 export function RecipeScreen() {
   const navigation = useNavigation<RecipeNavigationProp>();
   const route = useRoute<RecipeRouteProp>();
-  const recipe = getRecipeById(route.params.recipeId);
+  const recipe = getGeneratedRecipeById(route.params.recipeId) ?? getRecipeById(route.params.recipeId);
 
   const [servings, setServings] = useState(recipe?.baseServings ?? 4);
 

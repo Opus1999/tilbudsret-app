@@ -1,10 +1,13 @@
 /**
  * Rema 1000 scraper.
  *
- * Bruger Rema's interne kampagne-API som deres hjemmeside kalder.
- * Endpoint: https://cphapp.rema.dk/api/v2/leaflet/public/preview
+ * Primær: Rema's interne app-API (cphapp.rema1000.dk)
+ * Fallback: HTML-scraping af rema1000.dk/avis/
  *
- * Falder tilbage til HTML-scraping af tilbud.rema.dk hvis API'et ændres.
+ * Korrekte URLs verificeret 2026-04-01:
+ *   - Hjemmeside: https://rema1000.dk/
+ *   - Avis/tilbud: https://rema1000.dk/avis/
+ *   - App-API base: https://cphapp.rema1000.dk/api
  */
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -13,6 +16,11 @@ import { Offer, ScraperResult } from '../types';
 import { logger } from '../logger';
 
 const STORE = 'rema1000' as const;
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36',
+  'Accept': 'application/json, text/html, */*',
+  'Accept-Language': 'da-DK,da;q=0.9',
+};
 
 function id(name: string, price: number): string {
   return crypto.createHash('md5').update(`rema:${name}:${price}`).digest('hex').slice(0, 12);
@@ -32,24 +40,27 @@ async function fetchViaApi(): Promise<Offer[]> {
   const { from, to } = weekBounds();
   const scrapedAt = new Date().toISOString();
 
-  const { data } = await axios.get('https://cphapp.rema.dk/api/v2/leaflet/public/preview', {
-    headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+  // Rema app-API — returnerer aktuelle tilbud uden auth
+  const { data } = await axios.get('https://cphapp.rema1000.dk/api/v2/leaflet/public/preview', {
+    headers: HEADERS,
     timeout: 12000,
   });
 
-  const items: any[] = data?.items ?? data?.offers ?? [];
+  const items: any[] = data?.items ?? data?.offers ?? data ?? [];
+  if (!Array.isArray(items) || items.length === 0) throw new Error('Tom respons fra API');
+
   return items.map((item: any) => ({
-    id: id(item.name ?? '', item.price ?? 0),
+    id: id(item.name ?? item.heading ?? '', Number(item.price ?? item.discountPrice ?? 0)),
     store: STORE,
-    name: item.name ?? item.title ?? 'Ukendt vare',
+    name: item.name ?? item.heading ?? item.title ?? 'Ukendt vare',
     description: item.description ?? item.subtitle ?? '',
-    price: parseFloat(item.price ?? item.discountPrice ?? 0),
-    originalPrice: item.originalPrice ? parseFloat(item.originalPrice) : null,
-    unit: item.unit ?? item.unitSize ?? 'stk.',
-    category: item.category ?? 'Andet',
-    validFrom: item.validFrom ?? from,
-    validTo: item.validTo ?? to,
-    imageUrl: item.image ?? item.imageUrl ?? null,
+    price: Number(item.price ?? item.discountPrice ?? 0),
+    originalPrice: item.originalPrice != null ? Number(item.originalPrice) : null,
+    unit: item.unit ?? item.unitSize ?? item.quantity ?? 'stk.',
+    category: item.category ?? item.categories?.[0] ?? 'Andet',
+    validFrom: item.validFrom ?? item.startDate ?? from,
+    validTo: item.validTo ?? item.endDate ?? to,
+    imageUrl: item.image ?? item.imageUrl ?? item.thumbnail ?? null,
     scrapedAt,
   }));
 }
@@ -58,30 +69,79 @@ async function fetchViaHtml(): Promise<Offer[]> {
   const { from, to } = weekBounds();
   const scrapedAt = new Date().toISOString();
 
-  const { data: html } = await axios.get('https://tilbud.rema.dk', {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TilbudsretBot/1.0)' },
+  // Korrekt URL verificeret: rema1000.dk/avis/
+  const { data: html } = await axios.get('https://rema1000.dk/avis/', {
+    headers: { ...HEADERS, Accept: 'text/html' },
     timeout: 15000,
   });
 
   const $ = cheerio.load(html);
   const offers: Offer[] = [];
 
-  // Rema tilbuds-sider bruger .product-tile eller lignende klasser
-  $('[class*="product"], [class*="offer"], [class*="tile"]').each((_, el) => {
-    const name = $(el).find('[class*="name"], [class*="title"], h3, h4').first().text().trim();
-    const priceText = $(el).find('[class*="price"]').first().text().trim();
-    const price = parseFloat(priceText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+  // Rema bruger Nuxt.js — tilbudsdata kan ligge i __NUXT_DATA__ script-tag
+  const nuxtScript = $('script#__NUXT_DATA__, script[type="application/json"]').first().html();
+  if (nuxtScript) {
+    try {
+      const json = JSON.parse(nuxtScript);
+      // Flad Nuxt state-array ud og find offer-lignende objekter
+      const flat: any[] = Array.isArray(json) ? json : Object.values(json).flat();
+      flat.forEach((item: any) => {
+        if (!item || typeof item !== 'object') return;
+        if (!(item.name || item.title) || !(item.price || item.discountPrice)) return;
+        const price = Number(item.price ?? item.discountPrice ?? 0);
+        if (price === 0) return;
+        const name = item.name ?? item.title ?? '';
+        offers.push({
+          id: id(name, price),
+          store: STORE,
+          name,
+          description: item.description ?? '',
+          price,
+          originalPrice: item.originalPrice != null ? Number(item.originalPrice) : null,
+          unit: item.unit ?? 'stk.',
+          category: item.category ?? 'Andet',
+          validFrom: item.validFrom ?? from,
+          validTo: item.validTo ?? to,
+          imageUrl: item.image ?? item.imageUrl ?? null,
+          scrapedAt,
+        });
+      });
+      if (offers.length > 0) return offers;
+    } catch {
+      // JSON parse fejlede — fortsæt til DOM-scraping
+    }
+  }
 
+  // DOM-scraping som sidste fallback
+  // Rema Nuxt-sider bruger typisk data-testid eller product-card klasser
+  const selectors = [
+    '[data-testid*="product"]',
+    '[data-testid*="offer"]',
+    '[class*="ProductCard"]',
+    '[class*="product-card"]',
+    '[class*="OfferCard"]',
+    'article',
+  ];
+
+  $(selectors.join(', ')).each((_, el) => {
+    const name = $(el)
+      .find('[class*="title"], [class*="name"], [class*="heading"], h2, h3, h4')
+      .first().text().trim();
+    const priceText = $(el).find('[class*="price"], [class*="Price"]').first().text().trim();
+    const price = parseFloat(priceText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
     if (!name || price === 0) return;
+
+    const origText = $(el).find('[class*="strike"], [class*="original"], [class*="was"]').first().text().trim();
+    const originalPrice = parseFloat(origText.replace(/[^0-9,]/g, '').replace(',', '.')) || null;
 
     offers.push({
       id: id(name, price),
       store: STORE,
       name,
-      description: $(el).find('[class*="desc"]').first().text().trim(),
+      description: $(el).find('[class*="desc"], [class*="sub"]').first().text().trim(),
       price,
-      originalPrice: null,
-      unit: 'stk.',
+      originalPrice,
+      unit: $(el).find('[class*="unit"], [class*="quantity"]').first().text().trim() || 'stk.',
       category: 'Andet',
       validFrom: from,
       validTo: to,
@@ -95,22 +155,22 @@ async function fetchViaHtml(): Promise<Offer[]> {
 
 export async function scrapeRema(): Promise<ScraperResult> {
   const start = Date.now();
-  logger.info(`[${STORE}] Henter tilbud...`);
+  logger.info(`[${STORE}] Henter tilbud fra rema1000.dk...`);
 
   try {
     let offers: Offer[];
     try {
       offers = await fetchViaApi();
-      logger.ok(`[${STORE}] API: ${offers.length} tilbud`);
-    } catch {
-      logger.warn(`[${STORE}] API fejlede — prøver HTML scraping...`);
+      logger.ok(`[${STORE}] API (cphapp.rema1000.dk): ${offers.length} tilbud`);
+    } catch (apiErr: any) {
+      logger.warn(`[${STORE}] API fejlede (${apiErr.message}) — prøver HTML scraping...`);
       offers = await fetchViaHtml();
-      logger.ok(`[${STORE}] HTML: ${offers.length} tilbud`);
+      logger.ok(`[${STORE}] HTML (rema1000.dk/avis/): ${offers.length} tilbud`);
     }
 
     return { store: STORE, offers, fetchedAt: new Date().toISOString(), durationMs: Date.now() - start, error: null };
   } catch (err: any) {
-    const msg = err?.response?.status ? `HTTP ${err.response.status}` : err.message;
+    const msg = err?.response?.status ? `HTTP ${err.response.status}: ${err.response.statusText}` : err.message;
     logger.error(`[${STORE}] ${msg}`);
     return { store: STORE, offers: [], fetchedAt: new Date().toISOString(), durationMs: Date.now() - start, error: msg };
   }
