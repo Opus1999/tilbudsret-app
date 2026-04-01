@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -6,17 +8,43 @@ import {
   View,
   SafeAreaView,
 } from 'react-native';
+import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
 import { DishCard } from '../components/DishCard';
 import { StoreCard } from '../components/StoreCard';
+import { SkeletonDishCard, SkeletonStoreCard } from '../components/SkeletonCard';
 import { cheapestStores, weeklyDishes } from '../data/mockData';
 import { colors, fonts, spacing } from '../theme';
 import { HomeScreenNavigationProp } from '../navigation/types';
+
+const TOTAL_SAVINGS = weeklyDishes.reduce(
+  (sum, d) => sum + (d.originalPrice - d.pricePerPerson) * 4,
+  0
+);
 
 export function HomeScreen() {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const today = new Date();
   const weekNumber = getWeekNumber(today);
+  const [loading, setLoading] = useState(true);
+
+  // Simulate async data fetch
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 1400);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleShoppingList = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    navigation.navigate('ShoppingList');
+  };
+
+  const handleProfile = () => {
+    Haptics.selectionAsync();
+    navigation.navigate('Profile');
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -26,7 +54,7 @@ export function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <Animated.View entering={FadeInDown.duration(400)} style={styles.header}>
           <View>
             <Text style={styles.logo}>Tilbudsret</Text>
             <Text style={styles.logoTagline}>Uge {weekNumber} · Billigste middagsretter</Text>
@@ -34,7 +62,7 @@ export function HomeScreen() {
           <View style={styles.headerRight}>
             <TouchableOpacity
               style={styles.profileButton}
-              onPress={() => navigation.navigate('Profile')}
+              onPress={handleProfile}
               activeOpacity={0.7}
             >
               <Text style={styles.profileButtonText}>👤</Text>
@@ -43,63 +71,104 @@ export function HomeScreen() {
               <Text style={styles.weekBadgeText}>UGE{'\n'}{weekNumber}</Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
-        {/* Hero summary */}
-        <View style={styles.heroCard}>
-          <Text style={styles.heroEmoji}>🛍️</Text>
-          <View style={styles.heroText}>
-            <Text style={styles.heroTitle}>Ugens bedste tilbud er fundet</Text>
-            <Text style={styles.heroSubtitle}>
-              Spar op til <Text style={styles.heroHighlight}>87 kr</Text> på ugens middage
-            </Text>
-          </View>
-        </View>
+        {/* Hero banner */}
+        <Animated.View entering={FadeInDown.delay(80).duration(500)} style={styles.heroWrapper}>
+          <LinearGradient
+            colors={[colors.green, '#1a4a35', '#0f2d20']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroCard}
+          >
+            {/* Decorative circles */}
+            <View style={styles.heroCircle1} />
+            <View style={styles.heroCircle2} />
+
+            <View style={styles.heroLeft}>
+              <Text style={styles.heroLabel}>Ugens totale besparelse</Text>
+              <Text style={styles.heroSavings}>{TOTAL_SAVINGS} kr</Text>
+              <Text style={styles.heroSub}>på 3 middage for 4 pers.</Text>
+
+              <View style={styles.heroPills}>
+                <View style={styles.heroPill}>
+                  <Text style={styles.heroPillText}>🏪 3 butikker</Text>
+                </View>
+                <View style={styles.heroPill}>
+                  <Text style={styles.heroPillText}>🍽️ 3 retter</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.heroRight}>
+              <Text style={styles.heroEmojiBig}>🛍️</Text>
+              <View style={styles.heroBadge}>
+                <Text style={styles.heroBadgeText}>
+                  -{Math.round((TOTAL_SAVINGS / (weeklyDishes.reduce((s, d) => s + d.originalPrice, 0) * 4)) * 100)}%
+                </Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
 
         {/* Ugens retter */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
+          <Animated.View entering={FadeInDown.delay(160).duration(400)} style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Ugens 3 bedste retter</Text>
             <Text style={styles.sectionSubtitle}>Sorteret efter pris pr. person</Text>
-          </View>
+          </Animated.View>
 
-          {weeklyDishes.map((dish, index) => (
-            <DishCard key={dish.id} dish={dish} rank={index + 1} />
-          ))}
+          {loading
+            ? [1, 2, 3].map((i) => <SkeletonDishCard key={i} />)
+            : weeklyDishes.map((dish, index) => (
+                <DishCard key={dish.id} dish={dish} rank={index + 1} />
+              ))}
         </View>
 
         {/* Billigste butikker */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
+          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Billigst denne uge</Text>
             <Text style={styles.sectionSubtitle}>Baseret på ugens tilbud</Text>
-          </View>
+          </Animated.View>
 
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.storesRow}
           >
-            {cheapestStores.map((store) => (
-              <StoreCard key={store.id} store={store} />
-            ))}
+            {loading
+              ? [1, 2, 3].map((i) => <SkeletonStoreCard key={i} />)
+              : cheapestStores.map((store, index) => (
+                  <StoreCard key={store.id} store={store} index={index} />
+                ))}
           </ScrollView>
         </View>
 
-        {/* Bottom padding for the fixed button */}
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Fixed bottom button */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.ctaButton} activeOpacity={0.85} onPress={() => navigation.navigate('ShoppingList')}>
-          <Text style={styles.ctaIcon}>🛒</Text>
-          <Text style={styles.ctaText}>Se indkøbsliste</Text>
-          <View style={styles.ctaBadge}>
-            <Text style={styles.ctaBadgeText}>23</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+      {/* Fixed bottom CTA */}
+      <Animated.View entering={FadeIn.delay(300).duration(400)} style={styles.bottomBar}>
+        <Pressable
+          style={styles.ctaButton}
+          onPress={handleShoppingList}
+          onPressIn={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+        >
+          <LinearGradient
+            colors={[colors.red, '#c0242f']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.ctaGradient}
+          >
+            <Text style={styles.ctaIcon}>🛒</Text>
+            <Text style={styles.ctaText}>Se indkøbsliste</Text>
+            <View style={styles.ctaBadge}>
+              <Text style={styles.ctaBadgeText}>23</Text>
+            </View>
+          </LinearGradient>
+        </Pressable>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -117,9 +186,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.cream,
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.lg,
@@ -157,9 +224,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileButtonText: {
-    fontSize: 18,
-  },
+  profileButtonText: { fontSize: 18 },
   weekBadge: {
     backgroundColor: colors.red,
     borderRadius: 12,
@@ -175,46 +240,104 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  // Hero card
+  // Hero
+  heroWrapper: {
+    marginBottom: spacing.xl,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: colors.green,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 6,
+  },
   heroCard: {
-    backgroundColor: colors.green,
-    borderRadius: 16,
-    padding: spacing.md,
+    padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.xl,
+    minHeight: 150,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  heroEmoji: {
-    fontSize: 36,
+  heroCircle1: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    top: -60,
+    right: -40,
   },
-  heroText: {
+  heroCircle2: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    bottom: -40,
+    right: 60,
+  },
+  heroLeft: {
     flex: 1,
   },
-  heroTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-    color: colors.white,
-    marginBottom: 4,
+  heroLabel: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 6,
   },
-  heroSubtitle: {
+  heroSavings: {
+    fontFamily: fonts.bold,
+    fontSize: 48,
+    color: colors.white,
+    lineHeight: 52,
+    letterSpacing: -2,
+  },
+  heroSub: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    color: 'rgba(255,255,255,0.8)',
-    lineHeight: 18,
+    color: 'rgba(255,255,255,0.65)',
+    marginBottom: spacing.md,
   },
-  heroHighlight: {
+  heroPills: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  heroPill: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  heroPillText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  heroRight: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  heroEmojiBig: {
+    fontSize: 52,
+  },
+  heroBadge: {
+    backgroundColor: colors.red,
+    borderRadius: 20,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  heroBadgeText: {
     fontFamily: fonts.bold,
+    fontSize: 14,
     color: colors.white,
   },
 
   // Sections
-  section: {
-    marginBottom: spacing.xl,
-  },
-  sectionHeader: {
-    marginBottom: spacing.md,
-  },
+  section: { marginBottom: spacing.xl },
+  sectionHeader: { marginBottom: spacing.md },
   sectionTitle: {
     fontFamily: fonts.bold,
     fontSize: 20,
@@ -226,11 +349,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.grey,
   },
-
-  // Stores
-  storesRow: {
-    paddingRight: spacing.md,
-  },
+  storesRow: { paddingRight: spacing.md },
 
   // Bottom CTA
   bottomBar: {
@@ -246,18 +365,22 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   ctaButton: {
-    backgroundColor: colors.red,
     borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: colors.red,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  ctaGradient: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.sm,
   },
-  ctaIcon: {
-    fontSize: 20,
-  },
+  ctaIcon: { fontSize: 20 },
   ctaText: {
     fontFamily: fonts.bold,
     fontSize: 17,
