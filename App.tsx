@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -8,8 +10,7 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isLoggedIn } from './src/data/authStorage';
+
 import { AuthScreen } from './src/screens/AuthScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -31,18 +32,8 @@ export default function App() {
   const [initialRoute, setInitialRoute] = useState<InitialRoute | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      isLoggedIn(),
-      AsyncStorage.getItem('onboarding_done'),
-    ]).then(([loggedIn, onboarded]) => {
-      if (!loggedIn) {
-        setInitialRoute('Auth');
-      } else if (onboarded !== 'true') {
-        setInitialRoute('Onboarding');
-      } else {
-        setInitialRoute('Home');
-      }
-    });
+    // DEV: skip auth and onboarding, go straight to Home
+    setInitialRoute('Home');
   }, []);
 
   if (!fontsLoaded || initialRoute === null) {
@@ -50,6 +41,7 @@ export default function App() {
   }
 
   return (
+    <GestureHandlerRootView style={styles.root}>
     <NavigationContainer>
       <StatusBar style="dark" />
       <Stack.Navigator
@@ -59,22 +51,15 @@ export default function App() {
         <Stack.Screen name="Auth"         component={AuthScreen} />
         <Stack.Screen name="Onboarding"   component={OnboardingScreen} />
         <Stack.Screen name="Home"         component={HomeScreen} />
-        <Stack.Screen
-          name="Recipe"
-          component={RecipeScreen}
-          options={{ animation: 'slide_from_right' }}
-        />
-        <Stack.Screen
-          name="ShoppingList"
-          component={ShoppingListScreen}
-          options={{ animation: 'slide_from_right' }}
-        />
-        <Stack.Screen
-          name="Profile"
-          component={ProfileScreen}
-          options={{ animation: 'slide_from_right' }}
-        />
+        <Stack.Screen name="Recipe"        component={RecipeScreen} />
+        <Stack.Screen name="ShoppingList"  component={ShoppingListScreen} />
+        <Stack.Screen name="Profile"       component={ProfileScreen} />
       </Stack.Navigator>
     </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
